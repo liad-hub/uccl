@@ -163,6 +163,10 @@ class Buffer:
         for proxy in self.proxies:
             proxy.set_atomic_buffer_ptr(self.proxies[0].get_atomic_buffer_ptr())
 
+        # Ensure all ranks have completed IPC setup before any dispatch
+        torch.cuda.synchronize()
+        dist.barrier(group)
+
     def reset_rdma_buffer(self):
         """
         Reset the RDMA buffer, this is useful when you want to reuse the RDMA buffer for another run.

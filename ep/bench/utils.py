@@ -539,7 +539,15 @@ def initialize_uccl(
         for proxy in proxies:
             proxy.set_peers_meta(peers_meta_list)
 
+    # Synchronize all GPUs before registering proxies
+    torch.cuda.synchronize()
+    dist.barrier(group)
+
     ep.register_proxies(local_rank, proxies)
+
+    # Wait for proxy registration to complete on all ranks
+    torch.cuda.synchronize()
+    dist.barrier(group)
 
     # Set atomic buffer pointer for all proxies BEFORE starting them
     # This ensures the atomic buffer info is included in connection info exchange
@@ -569,7 +577,11 @@ def initialize_uccl(
     #         if rank == 0:
     #             print(f"PeerCopyManager unavailable: {e}", flush=True)
 
-    time.sleep(3)
+    # Increase sleep time to allow C++ proxy registration to complete
+    # The ep.register_proxies() call is asynchronous in C++
+    time.sleep(10)
+    torch.cuda.synchronize()
+    dist.barrier(group)
     return proxies, workers
 
 

@@ -11,10 +11,16 @@ pointer-to-pointer support.
 """
 
 import os
+import logging
 import torch
 import triton
 import triton.language as tl
 from typing import List, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Enable UCCL operation logging via environment variable
+UCCL_LOG_OPS = os.getenv("UCCL_LOG_OPS", "0") == "1"
 
 # =============================================================================
 # Triton Kernels
@@ -532,10 +538,19 @@ def pack_moe_data_to_buffers(
     backend: str = None,
 ) -> torch.Tensor:
     backend = backend or BACKEND
+    if UCCL_LOG_OPS:
+        logger.info(
+            f"UCCL pack_moe_data_to_buffers called: "
+            f"x.shape={x.shape}, topk_idx.shape={topk_idx.shape}, "
+            f"num_experts={num_experts}, world_size={world_size}, backend={backend}"
+        )
     if backend == "triton":
-        return pack_moe_data_to_buffers_triton(
+        result = pack_moe_data_to_buffers_triton(
             x, topk_idx, topk_weights, num_experts, world_size, device, buffers
         )
+        if UCCL_LOG_OPS:
+            logger.info(f"UCCL pack complete: per_rank_bytes={result.tolist()}")
+        return result
     elif backend == "cuda":
         from pack_unpack_cuda import pack_moe_data_to_buffers_cuda
 
@@ -563,8 +578,15 @@ def unpack_moe_data_from_buffers(
     backend: str = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int]]:
     backend = backend or BACKEND
+    if UCCL_LOG_OPS:
+        logger.info(
+            f"UCCL unpack_moe_data_from_buffers called: "
+            f"per_rank_recv_bytes={per_rank_recv_bytes.tolist()}, "
+            f"num_local_experts={num_local_experts}, hidden_dim={hidden_dim}, "
+            f"world_size={world_size}, backend={backend}"
+        )
     if backend == "triton":
-        return unpack_moe_data_from_buffers_triton(
+        result = unpack_moe_data_from_buffers_triton(
             buffers,
             per_rank_recv_bytes,
             num_local_experts,
@@ -575,6 +597,13 @@ def unpack_moe_data_from_buffers(
             idx_dtype,
             weight_dtype,
         )
+        if UCCL_LOG_OPS:
+            recv_x, recv_idx, recv_weights, expert_counts = result
+            logger.info(
+                f"UCCL unpack complete: recv_x.shape={recv_x.shape}, "
+                f"expert_counts={expert_counts}"
+            )
+        return result
     elif backend == "cuda":
         from pack_unpack_cuda import unpack_moe_data_from_buffers_cuda
 
